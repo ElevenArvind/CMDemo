@@ -21,6 +21,9 @@ namespace CMDemo.Managers
         private int _currentScore;
         public static Action<int> onScoreUpdated;
         public static Action<float> onComboTimerLeft;
+        public static Action onGameWon;
+        public static Action onGameRestarted;
+        public static Action<int> onGameStartingIn;
         
         // Combo system variables
         private float _lastMatchTime;
@@ -234,6 +237,13 @@ namespace CMDemo.Managers
                     if (_matchedCards.Count == _cards.Count)
                     {
                         Debug.Log("Congratulations! All cards matched!");
+                        // Stop and hide combo timer since game is over
+                        if (_comboTimerCoroutine != null)
+                        {
+                            StopCoroutine(_comboTimerCoroutine);
+                            _comboTimerCoroutine = null;
+                        }
+                        onComboTimerLeft?.Invoke(0f); // Hide timer UI
                         OnGameWon();
                     }
                 }
@@ -280,15 +290,23 @@ namespace CMDemo.Managers
         private void OnGameWon()
         {
             Debug.Log("Game completed! Starting new game...");
+            onGameWon?.Invoke();
             // Optional: Add a delay before starting a new game
-            StartCoroutine(RestartGameAfterDelay(2.0f));
+            StartCoroutine(RestartGameAfterDelay(3.0f));
         }
 
         private IEnumerator RestartGameAfterDelay(float delay)
         {
-            yield return new WaitForSeconds(delay);
+            // Countdown from delay seconds to 1
+            for (int countdown = (int)delay; countdown > 0; countdown--)
+            {
+                onGameStartingIn?.Invoke(countdown);
+                yield return new WaitForSeconds(1.0f);
+            }
+            
             _matchedCards.Clear();
             _flippedCards.Clear();
+            onGameRestarted?.Invoke();
             InitGame((int)_currentLayout.x, (int)_currentLayout.y);
         }
 

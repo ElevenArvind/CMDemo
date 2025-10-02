@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using CMDemo.Managers;
 using UnityEngine;
 
 namespace CMDemo.UI
@@ -14,6 +15,7 @@ namespace CMDemo.UI
         [SerializeField] private GameObject TopBarUI;
         [SerializeField] private GameModeController GameModeController;
         [SerializeField] private TopBarController TopBarController;
+        [SerializeField] private GameOverController GameOverController;
 
         public enum UIState
         {
@@ -23,11 +25,56 @@ namespace CMDemo.UI
             GameModeSelection
         }
 
+        private UIState _previousState;
         private UIState _currentState;
+        public UIState CurrentState => _currentState;
 
         private void Start()
         {
             ShowMainMenu();
+        }
+
+        private void Update()
+        {
+            BackButtonHandler();
+        }
+
+        private void BackButtonHandler()
+        {
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                HandleBackButton();
+            }
+        }
+
+        private void HandleBackButton()
+        {
+            switch (_currentState)
+            {
+                case UIState.MainMenu:
+                    // On main menu, quit application
+                    #if UNITY_EDITOR
+                        UnityEditor.EditorApplication.isPlaying = false;
+                    #else
+                        Application.Quit();
+                    #endif
+                    break;
+                    
+                case UIState.GameModeSelection:
+                    // Go back to main menu
+                    HideGameModeSelection();
+                    break;
+                    
+                case UIState.Game:
+                    // Go back to main menu (same as top bar back button)
+                    ShowMainMenu();
+                    break;
+                    
+                case UIState.GameOver:
+                    // Go back to main menu
+                    ShowMainMenu();
+                    break;
+            }
         }
 
         void OnEnable()
@@ -36,11 +83,17 @@ namespace CMDemo.UI
             TopBarController.onBackButtonPressed += ShowMainMenu;
             TopBarController.onReplayButtonPressed += ReplayGame;
             TopBarController.onSettingsButtonPressed += ShowGameModeSelection;
+            GameManager.onGameWon += ShowGameOverUI;
+            GameManager.onGameStartingIn += ShowStartingInUI;
+            GameManager.onGameRestarted += HideGameOverUI;
         }
 
         void OnDisable()
         {
             GameModeController.onStartGame -= HandleStartGame;
+            GameManager.onGameWon -= ShowGameOverUI;
+            GameManager.onGameStartingIn -= ShowStartingInUI;
+            GameManager.onGameRestarted -= HideGameOverUI;
         }
 
         public Action<int, int> onStartGame;
@@ -65,11 +118,20 @@ namespace CMDemo.UI
         {
             ResetScreens();
             MainMenuUI.SetActive(true);
+            _currentState = UIState.MainMenu;
         }
 
         public void ShowGameModeSelection()
         {
+            _previousState = _currentState;
             GameModeSelectionUI.SetActive(true);
+            _currentState = UIState.GameModeSelection;
+        }
+
+        private void HideGameModeSelection()
+        {
+            GameModeSelectionUI.SetActive(false);
+            _currentState = _previousState;
         }
 
         private void ShowGameUI()
@@ -77,12 +139,28 @@ namespace CMDemo.UI
             ResetScreens();
             GameUI.SetActive(true);
             TopBarUI.SetActive(true);
+            _currentState = UIState.Game;
         }
 
         private void ShowGameOverUI()
         {
-            ResetScreens();
             GameOverUI.SetActive(true);
+            GameOverController.ShowGameOverToast();
+            _currentState = UIState.GameOver;
+        }
+
+        private void ShowStartingInUI(int seconds)
+        {
+            // You can implement a "Starting In" UI here if needed
+            // For now, we'll just log it
+            Debug.Log($"Game starting in {seconds} seconds...");
+            GameOverController.ShowStartingIn(seconds);
+        }
+
+        private void HideGameOverUI()
+        {
+            GameOverUI.SetActive(false);
+            _currentState = UIState.Game;
         }
 
         private void ReplayGame()
