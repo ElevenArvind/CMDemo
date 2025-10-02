@@ -565,8 +565,9 @@ namespace CMDemo.Managers
                 // Restore card state
                 if (cardData.isMatched)
                 {
-                    // Card should stay flipped and show as matched (no animation needed)
+                    // Card should stay flipped and show as matched (scale 0 to indicate disappeared)
                     cardComponent.SetToFrontSide();
+                    cardComponent.transform.localScale = Vector3.zero;
                 }
                 else if (cardData.isFlipped)
                 {
