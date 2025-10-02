@@ -191,57 +191,74 @@ namespace CMDemo.Managers
             _flippedCards.Add(cardId);
             Debug.Log($"After adding: [{string.Join(", ", _flippedCards)}]");
 
-            // Immediately check for pairs when we have 2 flipped cards
-            if (_flippedCards.Count == 2)
-            {
-                Debug.Log($"Processing pair: {_flippedCards[0]} and {_flippedCards[1]}");
-                StartCoroutine(ProcessPairImmediately(_flippedCards[0], _flippedCards[1]));
-            }
-            else if (_flippedCards.Count > 2)
-            {
-                // This shouldn't happen with our new logic, but keeping as safety
-                Debug.LogWarning($"More than 2 cards flipped ({_flippedCards.Count})! Current: [{string.Join(", ", _flippedCards)}]");
+            // Process pairs independently - each pair gets its own processing
+            ProcessAvailablePairs();
+        }
 
-                // Take the first two and process them, keep any additional ones for next round
-                var remainingCards = new List<int>(_flippedCards.Skip(2));
-                var firstTwo = _flippedCards.Take(2).ToList();
-
-                Debug.Log($"Processing first two: {firstTwo[0]} and {firstTwo[1]}, keeping: [{string.Join(", ", remainingCards)}]");
-                StartCoroutine(ProcessPairImmediately(firstTwo[0], firstTwo[1]));
+        private void ProcessAvailablePairs()
+        {
+            // Process pairs in groups of 2, each independently
+            while (_flippedCards.Count >= 2)
+            {
+                // Take the first two cards for independent processing
+                int firstCardId = _flippedCards[0];
+                int secondCardId = _flippedCards[1];
+                
+                // Remove them from the flipped list immediately so they don't interfere with other pairs
+                _flippedCards.Remove(firstCardId);
+                _flippedCards.Remove(secondCardId);
+                
+                Debug.Log($"Processing independent pair: {firstCardId} and {secondCardId}");
+                Debug.Log($"Remaining flipped cards: [{string.Join(", ", _flippedCards)}]");
+                
+                // Start independent processing for this pair
+                StartCoroutine(ProcessPairIndependently(firstCardId, secondCardId));
             }
         }
 
-        private IEnumerator ProcessPairImmediately(int firstCardId, int secondCardId)
+        private IEnumerator ProcessPairIndependently(int firstCardId, int secondCardId)
         {
             Card firstCard = _cards.Find(c => c.Id == firstCardId);
             Card secondCard = _cards.Find(c => c.Id == secondCardId);
 
-            if (firstCard != null && secondCard != null)
+            // Validate that both cards exist and aren't already matched
+            if (firstCard == null || secondCard == null || 
+                _matchedCards.Contains(firstCardId) || _matchedCards.Contains(secondCardId))
             {
-                Debug.Log($"Checking match: Card {firstCardId} ({firstCard.Value}) vs Card {secondCardId} ({secondCard.Value})");
+                Debug.LogWarning($"Pair processing cancelled - cards {firstCardId}, {secondCardId} no longer valid for processing");
+                yield break;
+            }
 
-                // Brief moment to let players see both cards
-                yield return new WaitForSeconds(0.3f);
+            Debug.Log($"Checking match: Card {firstCardId} ({firstCard.Value}) vs Card {secondCardId} ({secondCard.Value})");
 
-                if (DoCardsMatch(firstCard, secondCard))
-                {
-                    // Cards match - keep them flipped and mark as matched
-                    _matchedCards.Add(firstCardId);
-                    _matchedCards.Add(secondCardId);
-                    Debug.Log($"Match found! Cards {firstCardId} and {secondCardId}");
+            // Brief moment to let players see both cards
+            yield return new WaitForSeconds(0.3f);
 
-                    // Play match found sound
-                    AudioManager.Instance?.PlayMatchFound();
+            // Double-check cards haven't been matched by another pair during the delay
+            if (_matchedCards.Contains(firstCardId) || _matchedCards.Contains(secondCardId))
+            {
+                Debug.LogWarning($"Pair processing cancelled after delay - cards {firstCardId}, {secondCardId} already matched by another pair");
+                yield break;
+            }
 
-                    OnScoreUpdate();
+            if (DoCardsMatch(firstCard, secondCard))
+            {
+                // Cards match - keep them flipped and mark as matched
+                _matchedCards.Add(firstCardId);
+                _matchedCards.Add(secondCardId);
+                Debug.Log($"Match found! Cards {firstCardId} and {secondCardId}");
 
-                    // Play match found animations immediately
-                    firstCard.OnMatchFound();
-                    secondCard.OnMatchFound();
+                // Play match found sound
+                AudioManager.Instance?.PlayMatchFound();
 
-                    // Remove only these specific cards from flipped list
-                    _flippedCards.Remove(firstCardId);
-                    _flippedCards.Remove(secondCardId);
+                OnScoreUpdate();
+
+                // Play match found animations immediately
+                firstCard.OnMatchFound();
+                secondCard.OnMatchFound();
+
+                // Cards are already removed from _flippedCards list in ProcessAvailablePairs
+                // so no need to remove them again here
 
                     // Check if all cards are matched (game won)
                     if (_matchedCards.Count == _cards.Count)
@@ -271,14 +288,10 @@ namespace CMDemo.Managers
                     secondCard.OnMatchNotFound();
                     Debug.Log($"No match. Cards {firstCardId} and {secondCardId} will flip back after mismatch animation.");
 
-                    // Remove these cards from flipped list and wait for flip back
-                    _flippedCards.Remove(firstCardId);
-                    _flippedCards.Remove(secondCardId);
-
+                    // Cards are already removed from _flippedCards list in ProcessAvailablePairs
                     // Wait for mismatch animation to complete before flipping back
                     StartCoroutine(FlipBackAfterMismatch(firstCard, secondCard, firstCardId, secondCardId));
                 }
-            }
         }
 
         private bool DoCardsMatch(Card firstCard, Card secondCard)

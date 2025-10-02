@@ -30,9 +30,13 @@ public class AudioManager : MonoBehaviour
     [Header("Audio Sources Pool")]
     [SerializeField] private int audioSourcePoolSize = 10;
     
+    [Header("Sound Throttling")]
+    [SerializeField] private float soundThrottleTime = 0.1f; // Minimum time between same sound plays
+    
     private Dictionary<SoundType, SoundEffect> soundDictionary;
     private Queue<AudioSource> audioSourcePool;
     private List<AudioSource> activeAudioSources;
+    private Dictionary<SoundType, float> lastSoundPlayTime;
     
     public static AudioManager Instance { get; private set; }
 
@@ -64,6 +68,9 @@ public class AudioManager : MonoBehaviour
             }
         }
 
+        // Initialize sound throttling dictionary
+        lastSoundPlayTime = new Dictionary<SoundType, float>();
+
         // Initialize audio source pool
         audioSourcePool = new Queue<AudioSource>();
         activeAudioSources = new List<AudioSource>();
@@ -86,6 +93,12 @@ public class AudioManager : MonoBehaviour
             return;
         }
 
+        // Check if sound should be throttled
+        if (ShouldThrottleSound(soundType))
+        {
+            return;
+        }
+
         SoundEffect sound = soundDictionary[soundType];
         
         if (sound.clip == null)
@@ -93,6 +106,9 @@ public class AudioManager : MonoBehaviour
             Debug.LogWarning($"AudioClip for {soundType} is null!");
             return;
         }
+
+        // Update last play time
+        lastSoundPlayTime[soundType] = Time.time;
 
         AudioSource audioSource = GetAvailableAudioSource();
         if (audioSource != null)
@@ -110,6 +126,25 @@ public class AudioManager : MonoBehaviour
     {
         yield return new WaitForSeconds(delay);
         PlaySound(soundType);
+    }
+
+    private bool ShouldThrottleSound(SoundType soundType)
+    {
+        // Allow CardFlip sounds to play without throttling for responsive feedback
+        if (soundType == SoundType.CardFlip)
+        {
+            return false;
+        }
+
+        // Check if we have a record of this sound being played
+        if (!lastSoundPlayTime.ContainsKey(soundType))
+        {
+            return false; // First time playing this sound
+        }
+
+        // Check if enough time has passed since last play
+        float timeSinceLastPlay = Time.time - lastSoundPlayTime[soundType];
+        return timeSinceLastPlay < soundThrottleTime;
     }
 
     private AudioSource GetAvailableAudioSource()
@@ -229,11 +264,38 @@ public class AudioManager : MonoBehaviour
         return false;
     }
 
+    // Method to play sound without throttling (for special cases)
+    public void PlaySoundForced(SoundType soundType)
+    {
+        if (!soundDictionary.ContainsKey(soundType))
+        {
+            Debug.LogWarning($"Sound {soundType} not found in AudioManager!");
+            return;
+        }
+
+        SoundEffect sound = soundDictionary[soundType];
+        
+        if (sound.clip == null)
+        {
+            Debug.LogWarning($"AudioClip for {soundType} is null!");
+            return;
+        }
+
+        // Update last play time
+        lastSoundPlayTime[soundType] = Time.time;
+
+        AudioSource audioSource = GetAvailableAudioSource();
+        if (audioSource != null)
+        {
+            PlaySoundOnSource(audioSource, sound);
+        }
+    }
+
     // Quick play methods for common game sounds
     public void PlayCardFlip() => PlaySound(SoundType.CardFlip);
     public void PlayMatchFound() => PlaySound(SoundType.MatchFound);
     public void PlayMistakeFound() => PlaySound(SoundType.MistakeFound);
-    public void PlayVictory() => PlaySound(SoundType.Victory);
+    public void PlayVictory() => PlaySoundForced(SoundType.Victory); // Victory should always play
 
     private void Start()
     {
