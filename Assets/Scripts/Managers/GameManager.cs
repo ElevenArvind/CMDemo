@@ -57,6 +57,10 @@ namespace CMDemo.Managers
                 Destroy(card.gameObject);
             }
             _cards.Clear();
+            
+            // Clear game state lists
+            _matchedCards.Clear();
+            _flippedCards.Clear();
 
             // Reset combo system
             _comboLevel = 0;
@@ -247,6 +251,7 @@ namespace CMDemo.Managers
                 _matchedCards.Add(firstCardId);
                 _matchedCards.Add(secondCardId);
                 Debug.Log($"Match found! Cards {firstCardId} and {secondCardId}");
+                Debug.Log($"Total matched cards now: {_matchedCards.Count} out of {_cards.Count}");
 
                 // Play match found sound
                 AudioManager.Instance?.PlayMatchFound();
@@ -261,6 +266,9 @@ namespace CMDemo.Managers
                 // so no need to remove them again here
 
                     // Check if all cards are matched (game won)
+                    Debug.Log($"Game Win Check - Matched cards: {_matchedCards.Count}, Total cards: {_cards.Count}");
+                    Debug.Log($"Matched card IDs: [{string.Join(", ", _matchedCards)}]");
+                    
                     if (_matchedCards.Count == _cards.Count)
                     {
                         Debug.Log("Congratulations! All cards matched!");
