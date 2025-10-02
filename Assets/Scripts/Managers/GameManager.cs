@@ -24,7 +24,7 @@ namespace CMDemo.Managers
         public static Action onGameWon;
         public static Action onGameRestarted;
         public static Action<int> onGameStartingIn;
-        
+
         // Combo system variables
         private float _lastMatchTime;
         private int _comboLevel = 0;
@@ -34,12 +34,16 @@ namespace CMDemo.Managers
         {
             UIController.onStartGame += StartGame;
             UIController.onReplayGame += ReplayGame;
+            UIController.onResumeGame += ResumeGame;
+            UIController.onSaveGame += SaveGameState;
         }
 
         void OnDisable()
         {
             UIController.onStartGame -= StartGame;
             UIController.onReplayGame -= ReplayGame;
+            UIController.onResumeGame -= ResumeGame;
+            UIController.onSaveGame -= SaveGameState;
         }
 
         private void ResetCards()
@@ -53,18 +57,18 @@ namespace CMDemo.Managers
                 Destroy(card.gameObject);
             }
             _cards.Clear();
-            
+
             // Reset combo system
             _comboLevel = 0;
             _isFirstMatch = true;
-            
+
             // Stop combo timer
             if (_comboTimerCoroutine != null)
             {
                 StopCoroutine(_comboTimerCoroutine);
                 _comboTimerCoroutine = null;
             }
-            
+
             onComboTimerLeft?.Invoke(0f); // Hide timer UI
         }
 
@@ -84,6 +88,9 @@ namespace CMDemo.Managers
             var cardData = GenerateCardPairs(layoutInfo.totalCards);
             ShuffleCards(cardData.symbols, cardData.colors);
             CreateAndPositionCards(layoutInfo, cardData.symbols, cardData.colors);
+            
+            // Clear any existing save data since we're starting a new game
+            DeleteSavedGame();
         }
 
         private (int columns, int rows, int totalCards, Vector2 cardSize, float startX, float startY, float padding) GetLayoutInfo(int rows, int columns)
@@ -303,7 +310,7 @@ namespace CMDemo.Managers
                 onGameStartingIn?.Invoke(countdown);
                 yield return new WaitForSeconds(1.0f);
             }
-            
+
             _matchedCards.Clear();
             _flippedCards.Clear();
             onGameRestarted?.Invoke();
@@ -323,20 +330,20 @@ namespace CMDemo.Managers
             float currentTime = Time.time;
             int basePoints = GameDataManager.Instance.GetGameData().BaseMatchPoints;
             int pointsToAdd = basePoints;
-            
+
             // Check for combo
             if (!_isFirstMatch)
             {
                 float timeSinceLastMatch = currentTime - _lastMatchTime;
                 float comboWindow = GameDataManager.Instance.GetGameData().ComboTimeWindow;
-                
+
                 if (timeSinceLastMatch <= comboWindow)
                 {
                     // Player got a combo!
                     _comboLevel = Mathf.Min(_comboLevel + 1, GameDataManager.Instance.GetGameData().MaxComboLevel);
                     int comboMultiplier = GameDataManager.Instance.GetGameData().ComboMultiplier;
                     pointsToAdd = basePoints + (basePoints * comboMultiplier * _comboLevel);
-                    
+
                     Debug.Log($"COMBO x{_comboLevel}! +{pointsToAdd} points (Time since last match: {timeSinceLastMatch:F1}s)");
                 }
                 else
@@ -352,12 +359,12 @@ namespace CMDemo.Managers
                 _isFirstMatch = false;
                 Debug.Log($"First match! +{pointsToAdd} points");
             }
-            
+
             _currentScore += pointsToAdd;
             _lastMatchTime = currentTime;
-            
+
             onScoreUpdated?.Invoke(_currentScore);
-            
+
             // Start/restart combo timer
             StartComboTimer();
         }
@@ -369,16 +376,16 @@ namespace CMDemo.Managers
             {
                 StopCoroutine(_comboTimerCoroutine);
             }
-            
+
             // Always start timer on every match - it restarts each time
             _comboTimerCoroutine = StartCoroutine(ComboTimerCoroutine());
         }
-        
+
         private IEnumerator ComboTimerCoroutine()
         {
             float comboWindow = GameDataManager.Instance.GetGameData().ComboTimeWindow;
             Debug.Log($"GameManager: Starting combo timer coroutine - window: {comboWindow}s, current combo level: {_comboLevel}");
-            
+
             while (Time.time - _lastMatchTime < comboWindow)
             {
                 float timeLeft = comboWindow - (Time.time - _lastMatchTime);
@@ -386,7 +393,7 @@ namespace CMDemo.Managers
                 onComboTimerLeft?.Invoke(fillAmount);
                 yield return null;
             }
-            
+
             // Timer expired - combo opportunity lost
             if (_comboLevel > 0)
             {
@@ -398,7 +405,7 @@ namespace CMDemo.Managers
                 Debug.Log("Combo opportunity timer expired - no combo achieved");
             }
             onComboTimerLeft?.Invoke(0f); // Send 0 to indicate timer expired
-            
+
             _comboTimerCoroutine = null;
         }
 
@@ -407,14 +414,14 @@ namespace CMDemo.Managers
             _currentScore = 0;
             _comboLevel = 0;
             _isFirstMatch = true;
-            
+
             // Stop combo timer
             if (_comboTimerCoroutine != null)
             {
                 StopCoroutine(_comboTimerCoroutine);
                 _comboTimerCoroutine = null;
             }
-            
+
             onScoreUpdated?.Invoke(_currentScore);
             onComboTimerLeft?.Invoke(0f); // Hide timer UI
         }
@@ -424,6 +431,139 @@ namespace CMDemo.Managers
         {
             _currentScore += 1;
             onScoreUpdated?.Invoke(_currentScore);
+        }
+
+        [ContextMenu("Save Game")]
+        private void SaveGameDebug()
+        {
+            SaveGameState();
+        }
+
+        [ContextMenu("Load Game")]
+        private void LoadGameDebug()
+        {
+            LoadGameState();
+        }
+
+        [ContextMenu("Delete Save")]
+        private void DeleteSaveDebug()
+        {
+            DeleteSavedGame();
+        }
+
+        private void ResumeGame()
+        {
+            LoadGameState();
+        }
+
+        public void SaveGameState()
+        {
+            SaveData saveData = new SaveData
+            {
+                rows = (int)_currentLayout.x,
+                columns = (int)_currentLayout.y,
+                currentScore = _currentScore,
+                lastMatchTime = _lastMatchTime,
+                comboLevel = _comboLevel,
+                isFirstMatch = _isFirstMatch,
+                flippedCardIds = new List<int>(_flippedCards),
+                matchedCardIds = new List<int>(_matchedCards)
+            };
+
+            // Save card data
+            foreach (Card card in _cards)
+            {
+                if (card != null)
+                {
+                    bool isFlipped = _flippedCards.Contains(card.Id);
+                    bool isMatched = _matchedCards.Contains(card.Id);
+                    
+                    // Get card color from the Card component
+                    Color cardColor = card.CardColor;
+                    
+                    CardData cardData = new CardData(card.Id, card.Value, cardColor, isFlipped, isMatched);
+                    saveData.cards.Add(cardData);
+                }
+            }
+
+            // Use GameDataManager to save
+            GameDataManager.Instance.SaveGameState(saveData);
+        }
+
+        public void LoadGameState()
+        {
+            // Use GameDataManager to load
+            SaveData saveData = GameDataManager.Instance.LoadGameState();
+            
+            if (saveData == null)
+            {
+                return;
+            }
+
+            // Clear existing game state
+            ResetCards();
+
+            // Restore game state
+            _currentLayout = new Vector2(saveData.rows, saveData.columns);
+            _currentScore = saveData.currentScore;
+            _lastMatchTime = saveData.lastMatchTime;
+            _comboLevel = saveData.comboLevel;
+            _isFirstMatch = saveData.isFirstMatch;
+            _flippedCards = new List<int>(saveData.flippedCardIds);
+            _matchedCards = new List<int>(saveData.matchedCardIds);
+
+            // Get layout info
+            var layoutInfo = GetLayoutInfo(saveData.rows, saveData.columns);
+
+            // Recreate cards from saved data
+            foreach (CardData cardData in saveData.cards)
+            {
+                GameObject cardObject = Instantiate(CardPrefab, CardsParent);
+                Card cardComponent = cardObject.GetComponent<Card>();
+
+                // Calculate position based on card ID and layout
+                int row = cardData.id / layoutInfo.columns;
+                int col = cardData.id % layoutInfo.columns;
+                float posX = layoutInfo.startX + col * (layoutInfo.cardSize.x + layoutInfo.padding);
+                float posY = layoutInfo.startY - row * (layoutInfo.cardSize.y + layoutInfo.padding);
+                Vector2 cardPosition = new Vector2(posX, posY);
+
+                cardComponent.SetProperties(cardData.id, cardData.value, cardData.GetColor(), 
+                    cardPosition, layoutInfo.cardSize, OnCardFlipped);
+
+                // Restore card state
+                if (cardData.isMatched)
+                {
+                    // Card should stay flipped and show as matched (no animation needed)
+                    cardComponent.SetToFrontSide();
+                }
+                else if (cardData.isFlipped)
+                {
+                    // Card should be flipped but not matched
+                    cardComponent.SetToFrontSide();
+                }
+
+                _cards.Add(cardComponent);
+            }
+
+            // Update UI
+            onScoreUpdated?.Invoke(_currentScore);
+
+            // Restore combo timer if needed
+            if (_comboLevel > 0 && !_isFirstMatch)
+            {
+                StartComboTimer();
+            }
+        }
+
+        public bool HasSavedGame()
+        {
+            return GameDataManager.Instance.HasSavedGame();
+        }
+
+        public void DeleteSavedGame()
+        {
+            GameDataManager.Instance.DeleteSavedGame();
         }
     }
 }

@@ -18,6 +18,8 @@ namespace CMDemo.Components
         private string _value;
 
         public string Value => _value;
+        
+        public Color CardColor => FrontTextLabel?.color ?? Color.white;
 
         private Action<int> _onClick;
         public void SetProperties(int id, string text, Color color, Vector3 position, Vector2 sizeDelta, Action<int> onClick = null)
@@ -190,6 +192,13 @@ namespace CMDemo.Components
                 _isTweening = false;
                 // Card is ready for flip back animation
             });
+        }
+
+        // Method to set card to front side without animation (for loading saved games)
+        public void SetToFrontSide()
+        {
+            FrontSideObject.SetActive(true);
+            BackSideObject.SetActive(false);
         }
     }
 }

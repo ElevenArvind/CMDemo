@@ -13,12 +13,15 @@ public class TopBarController : MonoBehaviour
     [SerializeField] private RectTransform BackButtonTransform;
     [SerializeField] private RectTransform SettingsButtonTransform;
     [SerializeField] private Image FillAmountImage;
+    [SerializeField] private GameObject SavedGameIndicator;
 
     public Action onBackButtonPressed;
 
     public Action onReplayButtonPressed;
 
     public Action onSettingsButtonPressed;
+
+    public Action onSaveGamePressed;
 
     private bool _shouldAnimate = true;
     void OnEnable()
@@ -88,7 +91,7 @@ public class TopBarController : MonoBehaviour
     }
 
     [SerializeField] private TextMeshProUGUI ScoreLabelText;
-    
+
     public void UpdateScore(int score)
     {
         // Update the score text
@@ -97,43 +100,43 @@ public class TopBarController : MonoBehaviour
         // Animate score update with a pop effect
         AnimateScoreUpdate();
     }
-    
+
     private void AnimateScoreUpdate()
     {
         // Create a satisfying score update animation
         var sequence = DOTween.Sequence();
-        
+
         // Scale up with bounce
         sequence.Append(ScoreLabelText.transform.DOScale(1.3f, 0.15f).SetEase(Ease.OutBack));
-        
+
         // Scale back down
         sequence.Append(ScoreLabelText.transform.DOScale(1f, 0.2f).SetEase(Ease.InBack));
-        
+
         // Optional: Add a subtle color flash
         Color originalColor = ScoreLabelText.color;
         Color flashColor = Color.red;
-        
+
         sequence.Join(ScoreLabelText.DOColor(flashColor, 0.3f)
             .SetLoops(2, LoopType.Yoyo)
             .OnComplete(() => ScoreLabelText.color = originalColor));
     }
-    
+
     private bool _wasTimerActive = false;
-    
+
     private void OnComboTimerUpdate(float fillAmount)
     {
         Debug.Log($"TopBarController: Received combo timer update - fillAmount: {fillAmount}");
-        
+
         // Check if FillAmountImage is assigned
         if (FillAmountImage == null)
         {
             Debug.LogError("TopBarController: FillAmountImage is null! Please assign it in the inspector.");
             return;
         }
-        
+
         // Update the fill amount of the image
         FillAmountImage.fillAmount = fillAmount;
-        
+
         // Change color based on time left
         Color timerColor;
         if (fillAmount > 0.6f)
@@ -166,31 +169,68 @@ public class TopBarController : MonoBehaviour
             _wasTimerActive = false;
             return;
         }
-        
+
         FillAmountImage.color = timerColor;
     }
-    
+
     private void OnComboTimerExpired()
     {
         // Visual feedback when combo timer expires
         Debug.Log("Combo timer expired - UI feedback triggered");
-        
+
         // Hide the timer image
         FillAmountImage.fillAmount = 0f;
         FillAmountImage.color = Color.clear;
-        
+
         // Animate score label to show combo loss
         var sequence = DOTween.Sequence();
-        
+
         // Shake the score label
         sequence.Append(ScoreLabelText.transform.DOShakePosition(0.5f, 10f, 20, 90f));
-        
+
         // Flash red to indicate combo loss
         Color originalColor = ScoreLabelText.color;
         Color lossColor = Color.red;
-        
+
         sequence.Join(ScoreLabelText.DOColor(lossColor, 0.2f)
             .SetLoops(3, LoopType.Yoyo)
             .OnComplete(() => ScoreLabelText.color = originalColor));
+    }
+
+    public void OnSaveGame()
+    {
+        if (_isTweening) return;
+
+        _shouldAnimate = false;
+        onSaveGamePressed?.Invoke();
+        
+        // Animate the indicator with fade in and fade out
+        StartCoroutine(AnimateSavedGameIndicator(2.0f));
+    }
+    
+    private IEnumerator AnimateSavedGameIndicator(float displayDuration)
+    {
+        // Setup CanvasGroup for fade animations
+        CanvasGroup canvasGroup = SavedGameIndicator.GetComponent<CanvasGroup>();
+        if (canvasGroup == null)
+        {
+            canvasGroup = SavedGameIndicator.AddComponent<CanvasGroup>();
+        }
+        
+        // Start with indicator invisible
+        canvasGroup.alpha = 0f;
+        SavedGameIndicator.SetActive(true);
+        
+        // Fade in animation
+        canvasGroup.DOFade(1f, 0.3f).SetEase(Ease.OutQuad);
+        
+        // Wait for display duration
+        yield return new WaitForSeconds(displayDuration);
+        
+        // Fade out animation
+        canvasGroup.DOFade(0f, 0.5f).SetEase(Ease.InQuad).OnComplete(() => {
+            SavedGameIndicator.SetActive(false);
+            canvasGroup.alpha = 1f; // Reset alpha for next time
+        });
     }
 }

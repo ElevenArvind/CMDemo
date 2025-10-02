@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using CMDemo.Managers;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace CMDemo.UI
 {
@@ -16,6 +17,7 @@ namespace CMDemo.UI
         [SerializeField] private GameModeController GameModeController;
         [SerializeField] private TopBarController TopBarController;
         [SerializeField] private GameOverController GameOverController;
+        [SerializeField] private Button ResumeButton;
 
         public enum UIState
         {
@@ -53,23 +55,23 @@ namespace CMDemo.UI
             {
                 case UIState.MainMenu:
                     // On main menu, quit application
-                    #if UNITY_EDITOR
-                        UnityEditor.EditorApplication.isPlaying = false;
-                    #else
+#if UNITY_EDITOR
+                    UnityEditor.EditorApplication.isPlaying = false;
+#else
                         Application.Quit();
-                    #endif
+#endif
                     break;
-                    
+
                 case UIState.GameModeSelection:
                     // Go back to main menu
                     HideGameModeSelection();
                     break;
-                    
+
                 case UIState.Game:
                     // Go back to main menu (same as top bar back button)
                     ShowMainMenu();
                     break;
-                    
+
                 case UIState.GameOver:
                     // Go back to main menu
                     ShowMainMenu();
@@ -83,6 +85,7 @@ namespace CMDemo.UI
             TopBarController.onBackButtonPressed += ShowMainMenu;
             TopBarController.onReplayButtonPressed += ReplayGame;
             TopBarController.onSettingsButtonPressed += ShowGameModeSelection;
+            TopBarController.onSaveGamePressed += SaveGame;
             GameManager.onGameWon += ShowGameOverUI;
             GameManager.onGameStartingIn += ShowStartingInUI;
             GameManager.onGameRestarted += HideGameOverUI;
@@ -91,6 +94,10 @@ namespace CMDemo.UI
         void OnDisable()
         {
             GameModeController.onStartGame -= HandleStartGame;
+            TopBarController.onBackButtonPressed -= ShowMainMenu;
+            TopBarController.onReplayButtonPressed -= ReplayGame;
+            TopBarController.onSettingsButtonPressed -= ShowGameModeSelection;
+            TopBarController.onSaveGamePressed -= SaveGame;
             GameManager.onGameWon -= ShowGameOverUI;
             GameManager.onGameStartingIn -= ShowStartingInUI;
             GameManager.onGameRestarted -= HideGameOverUI;
@@ -98,6 +105,8 @@ namespace CMDemo.UI
 
         public Action<int, int> onStartGame;
         public Action onReplayGame;
+        public Action onResumeGame;
+        public Action onSaveGame;
         private void HandleStartGame(int rows, int columns)
         {
             ShowGameUI();
@@ -119,13 +128,26 @@ namespace CMDemo.UI
             ResetScreens();
             MainMenuUI.SetActive(true);
             _currentState = UIState.MainMenu;
+            UpdateResumeButton();
         }
+
+        private void UpdateResumeButton()
+        {
+            ResumeButton.interactable = GameDataManager.Instance.HasSavedGame();
+        }
+
 
         public void ShowGameModeSelection()
         {
             _previousState = _currentState;
             GameModeSelectionUI.SetActive(true);
             _currentState = UIState.GameModeSelection;
+        }
+
+        public void ResumeGame()
+        {
+            ShowGameUI();
+            onResumeGame?.Invoke();
         }
 
         private void HideGameModeSelection()
@@ -151,8 +173,6 @@ namespace CMDemo.UI
 
         private void ShowStartingInUI(int seconds)
         {
-            // You can implement a "Starting In" UI here if needed
-            // For now, we'll just log it
             Debug.Log($"Game starting in {seconds} seconds...");
             GameOverController.ShowStartingIn(seconds);
         }
@@ -167,6 +187,11 @@ namespace CMDemo.UI
         {
             ShowGameUI();
             onReplayGame?.Invoke();
+        }
+
+        private void SaveGame()
+        {
+            onSaveGame?.Invoke();
         }
     }
 }
