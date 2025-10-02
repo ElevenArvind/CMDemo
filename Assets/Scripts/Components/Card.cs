@@ -57,6 +57,8 @@ namespace CMDemo.Components
         private void Flip()
         {
             transform.SetAsLastSibling();
+            // Play card flip sound
+            AudioManager.Instance?.PlayCardFlip();
             RectTransform rectTransform = GetComponent<RectTransform>();
             Vector3 originalPosition = rectTransform.anchoredPosition3D;
             

@@ -230,6 +230,9 @@ namespace CMDemo.Managers
                     _matchedCards.Add(secondCardId);
                     Debug.Log($"Match found! Cards {firstCardId} and {secondCardId}");
 
+                    // Play match found sound
+                    AudioManager.Instance?.PlayMatchFound();
+
                     OnScoreUpdate();
 
                     // Play match found animations immediately
@@ -251,12 +254,19 @@ namespace CMDemo.Managers
                             _comboTimerCoroutine = null;
                         }
                         onComboTimerLeft?.Invoke(0f); // Hide timer UI
+                        
+                        // Play victory sound with a slight delay for better effect
+                        AudioManager.Instance?.PlaySoundWithDelay(AudioManager.SoundType.Victory, 0.1f);
+                        
                         OnGameWon();
                     }
                 }
                 else
                 {
                     // Cards don't match - show mismatch animation then flip back
+                    // Play mistake sound
+                    AudioManager.Instance?.PlayMistakeFound();
+                    
                     firstCard.OnMatchNotFound();
                     secondCard.OnMatchNotFound();
                     Debug.Log($"No match. Cards {firstCardId} and {secondCardId} will flip back after mismatch animation.");
