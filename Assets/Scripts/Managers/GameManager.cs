@@ -1,7 +1,9 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using CMDemo.Components;
+using CMDemo.UI;
 using UnityEngine;
 
 namespace CMDemo.Managers
@@ -11,102 +13,78 @@ namespace CMDemo.Managers
         [SerializeField] private RectTransform CardsParent;
         [SerializeField] private GameObject CardPrefab;
         [SerializeField] private RectTransform PlayArea;
-
+        [SerializeField] private UIController UIController;
         private List<Card> _cards = new List<Card>();
-
-        public enum CardLayout
+        private List<int> _flippedCards = new List<int>();
+        private List<int> _matchedCards = new List<int>();
+        private Vector2 _currentLayout;
+        private int _currentScore;
+        public static Action<int> onScoreUpdated;
+        public static Action<float> onComboTimerLeft;
+        
+        // Combo system variables
+        private float _lastMatchTime;
+        private int _comboLevel = 0;
+        private bool _isFirstMatch = true;
+        private Coroutine _comboTimerCoroutine;
+        void OnEnable()
         {
-            TwoxTwo,
-            TwoxThree,
-            FivexSix,
+            UIController.onStartGame += StartGame;
+            UIController.onReplayGame += ReplayGame;
         }
 
-        private CardLayout _currentLayout = CardLayout.FivexSix;
-        void Awake()
+        void OnDisable()
         {
-            InitSymbols();
-        }
-
-        private string[] _pairSymbols;
-        private Color[] _pairColors;
-        private void InitSymbols()
-        {
-            _pairSymbols = new string[]
-            {
-                "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
-                "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-                "★", "♠", "♣", "♥", "♦", "♪", "♫", "☀", "☂", "☃", "⚡", "✈", "⚽", "🎵", "🌟"
-            };
-
-            // Define colors for each pair
-            _pairColors = new Color[]
-            {
-                Color.red, Color.blue, Color.green, Color.yellow, Color.magenta,
-                Color.cyan, new Color(1f, 0.5f, 0f), new Color(0.5f, 0f, 1f),
-                new Color(1f, 0.75f, 0.8f), new Color(0.5f, 1f, 0.5f),
-                new Color(1f, 1f, 0.5f), new Color(0.8f, 0.4f, 0.2f),
-                new Color(0.2f, 0.8f, 0.8f), new Color(0.8f, 0.2f, 0.8f),
-                new Color(0.4f, 0.4f, 0.8f)
-            };
-        }
-
-        void Start()
-        {
-            InitCards(_currentLayout);
+            UIController.onStartGame -= StartGame;
+            UIController.onReplayGame -= ReplayGame;
         }
 
         private void ResetCards()
         {
             foreach (var card in _cards)
             {
+                if (card != null)
+                {
+                    card.ResetCard(); // Reset card state before destroying
+                }
                 Destroy(card.gameObject);
             }
             _cards.Clear();
+            
+            // Reset combo system
+            _comboLevel = 0;
+            _isFirstMatch = true;
+            
+            // Stop combo timer
+            if (_comboTimerCoroutine != null)
+            {
+                StopCoroutine(_comboTimerCoroutine);
+                _comboTimerCoroutine = null;
+            }
+            
+            onComboTimerLeft?.Invoke(0f); // Hide timer UI
         }
 
-        private Dictionary<CardLayout, Vector2> _layoutDimensions = new Dictionary<CardLayout, Vector2>
-        {
-            { CardLayout.TwoxTwo, new Vector2(2, 2) },
-            { CardLayout.TwoxThree, new Vector2(2, 3) },
-            { CardLayout.FivexSix, new Vector2(5, 6) },
-        };
 
-        [ContextMenu("Set 2x2 Layout")]
-        public void SetTwoByTwoLayout()
+        public void StartGame(int rows, int columns)
         {
-            _currentLayout = CardLayout.TwoxTwo;
-            InitCards(_currentLayout);
+            _currentLayout = new Vector2(rows, columns);
+            InitGame(rows, columns);
         }
 
-        [ContextMenu("Set 2x3 Layout")]
-        public void SetTwoByThreeLayout()
+        private void InitGame(int rows, int columns)
         {
-            _currentLayout = CardLayout.TwoxThree;
-            InitCards(_currentLayout);
-        }
-
-        [ContextMenu("Set 5x6 Layout")]
-        public void SetFiveBySixLayout()
-        {
-            _currentLayout = CardLayout.FivexSix;
-            InitCards(_currentLayout);
-        }
-
-        private void InitCards(CardLayout layout)
-        {
+            OnResetScore();
             ResetCards();
 
-            var layoutInfo = GetLayoutInfo(layout);
+            var layoutInfo = GetLayoutInfo(rows, columns);
             var cardData = GenerateCardPairs(layoutInfo.totalCards);
             ShuffleCards(cardData.symbols, cardData.colors);
             CreateAndPositionCards(layoutInfo, cardData.symbols, cardData.colors);
         }
 
-        private (int columns, int rows, int totalCards, Vector2 cardSize, float startX, float startY, float padding) GetLayoutInfo(CardLayout layout)
+        private (int columns, int rows, int totalCards, Vector2 cardSize, float startX, float startY, float padding) GetLayoutInfo(int rows, int columns)
         {
-            Vector2 layoutDimensions = _layoutDimensions[layout];
-            int columns = (int)layoutDimensions.x;
-            int rows = (int)layoutDimensions.y;
             int totalCards = columns * rows;
 
             // Get PlayArea dimensions
@@ -131,11 +109,11 @@ namespace CMDemo.Managers
             List<Color> cardColors = new List<Color>();
             int pairCount = totalCards / 2;
 
-            // Add pairs of symbols and their corresponding colors
+            // Add pairs of symbols and their corresponding colors from GameDataManager
             for (int i = 0; i < pairCount; i++)
             {
-                string symbol = _pairSymbols[i % _pairSymbols.Length];
-                Color pairColor = _pairColors[i % _pairColors.Length];
+                string symbol = GameDataManager.Instance.GetSymbol(i);
+                Color pairColor = GameDataManager.Instance.GetColor(i);
                 cardSymbols.Add(symbol);
                 cardSymbols.Add(symbol);
                 cardColors.Add(pairColor);
@@ -150,7 +128,7 @@ namespace CMDemo.Managers
             // Shuffle the card symbols and colors together
             for (int i = 0; i < symbols.Count; i++)
             {
-                int randomIndex = Random.Range(i, symbols.Count);
+                int randomIndex = UnityEngine.Random.Range(i, symbols.Count);
 
                 // Swap symbols
                 string tempSymbol = symbols[i];
@@ -190,115 +168,90 @@ namespace CMDemo.Managers
             }
         }
 
-        private List<int> _flippedCards = new List<int>();
-        private List<int> _matchedCards = new List<int>();
-        private List<int> _cardsBeingProcessed = new List<int>();
-        private Queue<(int, int)> _pendingMatches = new Queue<(int, int)>();
-        private bool _isProcessingQueue = false;
-
         private void OnCardFlipped(int cardId)
         {
             // Prevent flipping if card is already matched or already flipped
             if (_matchedCards.Contains(cardId) || _flippedCards.Contains(cardId))
+            {
+                Debug.Log($"Card {cardId} flip prevented - already matched: {_matchedCards.Contains(cardId)}, already flipped: {_flippedCards.Contains(cardId)}");
                 return;
+            }
 
-            Debug.Log($"Card {cardId} flipped!");
+            Debug.Log($"Card {cardId} flipped! Current flipped cards: [{string.Join(", ", _flippedCards)}]");
             _flippedCards.Add(cardId);
+            Debug.Log($"After adding: [{string.Join(", ", _flippedCards)}]");
 
-            // Check for pairs and queue them for processing
-            CheckForNewPairs();
-            
-            // Start processing queue if not already running
-            if (!_isProcessingQueue && _pendingMatches.Count > 0)
+            // Immediately check for pairs when we have 2 flipped cards
+            if (_flippedCards.Count == 2)
             {
-                StartCoroutine(ProcessMatchQueue());
+                Debug.Log($"Processing pair: {_flippedCards[0]} and {_flippedCards[1]}");
+                StartCoroutine(ProcessPairImmediately(_flippedCards[0], _flippedCards[1]));
+            }
+            else if (_flippedCards.Count > 2)
+            {
+                // This shouldn't happen with our new logic, but keeping as safety
+                Debug.LogWarning($"More than 2 cards flipped ({_flippedCards.Count})! Current: [{string.Join(", ", _flippedCards)}]");
+
+                // Take the first two and process them, keep any additional ones for next round
+                var remainingCards = new List<int>(_flippedCards.Skip(2));
+                var firstTwo = _flippedCards.Take(2).ToList();
+
+                Debug.Log($"Processing first two: {firstTwo[0]} and {firstTwo[1]}, keeping: [{string.Join(", ", remainingCards)}]");
+                StartCoroutine(ProcessPairImmediately(firstTwo[0], firstTwo[1]));
             }
         }
 
-        private void CheckForNewPairs()
+        private IEnumerator ProcessPairImmediately(int firstCardId, int secondCardId)
         {
-            // Process pairs from flipped cards (excluding already matched and being processed)
-            var availableCards = _flippedCards.Where(id => 
-                !_matchedCards.Contains(id) && 
-                !_cardsBeingProcessed.Contains(id)).ToList();
-            
-            // Queue pairs for processing
-            while (availableCards.Count >= 2)
+            Card firstCard = _cards.Find(c => c.Id == firstCardId);
+            Card secondCard = _cards.Find(c => c.Id == secondCardId);
+
+            if (firstCard != null && secondCard != null)
             {
-                int firstCard = availableCards[0];
-                int secondCard = availableCards[1];
-                
-                _pendingMatches.Enqueue((firstCard, secondCard));
-                
-                // Mark these cards as being processed to prevent duplicate pairs
-                _cardsBeingProcessed.Add(firstCard);
-                _cardsBeingProcessed.Add(secondCard);
-                
-                availableCards.RemoveAt(0);
-                availableCards.RemoveAt(0);
-            }
-        }
+                Debug.Log($"Checking match: Card {firstCardId} ({firstCard.Value}) vs Card {secondCardId} ({secondCard.Value})");
 
-        private IEnumerator ProcessMatchQueue()
-        {
-            _isProcessingQueue = true;
+                // Brief moment to let players see both cards
+                yield return new WaitForSeconds(0.3f);
 
-            while (_pendingMatches.Count > 0)
-            {
-                var (firstCardId, secondCardId) = _pendingMatches.Dequeue();
-
-                Card firstCard = _cards.Find(c => c.Id == firstCardId);
-                Card secondCard = _cards.Find(c => c.Id == secondCardId);
-
-                if (firstCard != null && secondCard != null)
+                if (DoCardsMatch(firstCard, secondCard))
                 {
-                    Debug.Log($"Checking match: Card {firstCardId} ({firstCard.Value}) vs Card {secondCardId} ({secondCard.Value})");
+                    // Cards match - keep them flipped and mark as matched
+                    _matchedCards.Add(firstCardId);
+                    _matchedCards.Add(secondCardId);
+                    Debug.Log($"Match found! Cards {firstCardId} and {secondCardId}");
 
-                    // Wait a moment to let players see both cards
-                    yield return new WaitForSeconds(1.0f);
+                    OnScoreUpdate();
 
-                    if (DoCardsMatch(firstCard, secondCard))
+                    // Play match found animations immediately
+                    firstCard.OnMatchFound();
+                    secondCard.OnMatchFound();
+
+                    // Remove only these specific cards from flipped list
+                    _flippedCards.Remove(firstCardId);
+                    _flippedCards.Remove(secondCardId);
+
+                    // Check if all cards are matched (game won)
+                    if (_matchedCards.Count == _cards.Count)
                     {
-                        // Cards match - keep them flipped and mark as matched
-                        _matchedCards.Add(firstCardId);
-                        _matchedCards.Add(secondCardId);
-                        Debug.Log($"Match found! Cards {firstCardId} and {secondCardId}");
-
-                        // Play match found animations
-                        firstCard.OnMatchFound();
-                        secondCard.OnMatchFound();
-
-                        // Remove matched cards from all lists
-                        _flippedCards.Remove(firstCardId);
-                        _flippedCards.Remove(secondCardId);
-                        _cardsBeingProcessed.Remove(firstCardId);
-                        _cardsBeingProcessed.Remove(secondCardId);
-
-                        // Check if all cards are matched (game won)
-                        if (_matchedCards.Count == _cards.Count)
-                        {
-                            Debug.Log("Congratulations! All cards matched!");
-                            OnGameWon();
-                            break; // Exit the loop as game is restarting
-                        }
-                    }
-                    else
-                    {
-                        // Cards don't match - show mismatch animation then flip back
-                        firstCard.OnMatchNotFound();
-                        secondCard.OnMatchNotFound();
-                        Debug.Log($"No match. Cards {firstCardId} and {secondCardId} will flip back after mismatch animation.");
-
-                        // Wait for mismatch animation to complete before flipping back
-                        StartCoroutine(FlipBackAfterMismatch(firstCard, secondCard, firstCardId, secondCardId));
+                        Debug.Log("Congratulations! All cards matched!");
+                        OnGameWon();
                     }
                 }
+                else
+                {
+                    // Cards don't match - show mismatch animation then flip back
+                    firstCard.OnMatchNotFound();
+                    secondCard.OnMatchNotFound();
+                    Debug.Log($"No match. Cards {firstCardId} and {secondCardId} will flip back after mismatch animation.");
 
-                // Small delay between processing matches for better UX
-                yield return new WaitForSeconds(0.1f);
+                    // Remove these cards from flipped list and wait for flip back
+                    _flippedCards.Remove(firstCardId);
+                    _flippedCards.Remove(secondCardId);
+
+                    // Wait for mismatch animation to complete before flipping back
+                    StartCoroutine(FlipBackAfterMismatch(firstCard, secondCard, firstCardId, secondCardId));
+                }
             }
-
-            _isProcessingQueue = false;
         }
 
         private bool DoCardsMatch(Card firstCard, Card secondCard)
@@ -320,11 +273,8 @@ namespace CMDemo.Managers
             FlipCardBack(firstCard);
             FlipCardBack(secondCard);
 
-            // Remove non-matching cards from all lists
-            _flippedCards.Remove(firstCardId);
-            _flippedCards.Remove(secondCardId);
-            _cardsBeingProcessed.Remove(firstCardId);
-            _cardsBeingProcessed.Remove(secondCardId);
+            // Cards have been flipped back, no need to clear the list as we already removed these cards
+            // This allows other cards that might have been clicked to remain in the list
         }
 
         private void OnGameWon()
@@ -339,10 +289,123 @@ namespace CMDemo.Managers
             yield return new WaitForSeconds(delay);
             _matchedCards.Clear();
             _flippedCards.Clear();
-            _cardsBeingProcessed.Clear();
-            _pendingMatches.Clear();
-            _isProcessingQueue = false;
-            InitCards(_currentLayout);
+            InitGame((int)_currentLayout.x, (int)_currentLayout.y);
+        }
+
+        private void ReplayGame()
+        {
+            Debug.Log("Replaying game with same layout...");
+            _matchedCards.Clear();
+            _flippedCards.Clear();
+            InitGame((int)_currentLayout.x, (int)_currentLayout.y);
+        }
+
+        private void OnScoreUpdate()
+        {
+            float currentTime = Time.time;
+            int basePoints = GameDataManager.Instance.GetGameData().BaseMatchPoints;
+            int pointsToAdd = basePoints;
+            
+            // Check for combo
+            if (!_isFirstMatch)
+            {
+                float timeSinceLastMatch = currentTime - _lastMatchTime;
+                float comboWindow = GameDataManager.Instance.GetGameData().ComboTimeWindow;
+                
+                if (timeSinceLastMatch <= comboWindow)
+                {
+                    // Player got a combo!
+                    _comboLevel = Mathf.Min(_comboLevel + 1, GameDataManager.Instance.GetGameData().MaxComboLevel);
+                    int comboMultiplier = GameDataManager.Instance.GetGameData().ComboMultiplier;
+                    pointsToAdd = basePoints + (basePoints * comboMultiplier * _comboLevel);
+                    
+                    Debug.Log($"COMBO x{_comboLevel}! +{pointsToAdd} points (Time since last match: {timeSinceLastMatch:F1}s)");
+                }
+                else
+                {
+                    // Combo broken
+                    _comboLevel = 0;
+                    onComboTimerLeft?.Invoke(0f); // Hide timer UI
+                    Debug.Log($"Combo broken. Time since last match: {timeSinceLastMatch:F1}s");
+                }
+            }
+            else
+            {
+                _isFirstMatch = false;
+                Debug.Log($"First match! +{pointsToAdd} points");
+            }
+            
+            _currentScore += pointsToAdd;
+            _lastMatchTime = currentTime;
+            
+            onScoreUpdated?.Invoke(_currentScore);
+            
+            // Start/restart combo timer
+            StartComboTimer();
+        }
+
+        private void StartComboTimer()
+        {
+            // Stop existing timer if running
+            if (_comboTimerCoroutine != null)
+            {
+                StopCoroutine(_comboTimerCoroutine);
+            }
+            
+            // Always start timer on every match - it restarts each time
+            _comboTimerCoroutine = StartCoroutine(ComboTimerCoroutine());
+        }
+        
+        private IEnumerator ComboTimerCoroutine()
+        {
+            float comboWindow = GameDataManager.Instance.GetGameData().ComboTimeWindow;
+            Debug.Log($"GameManager: Starting combo timer coroutine - window: {comboWindow}s, current combo level: {_comboLevel}");
+            
+            while (Time.time - _lastMatchTime < comboWindow)
+            {
+                float timeLeft = comboWindow - (Time.time - _lastMatchTime);
+                float fillAmount = timeLeft / comboWindow;
+                onComboTimerLeft?.Invoke(fillAmount);
+                yield return null;
+            }
+            
+            // Timer expired - combo opportunity lost
+            if (_comboLevel > 0)
+            {
+                Debug.Log($"Combo timer expired! Lost combo level {_comboLevel}");
+                _comboLevel = 0;
+            }
+            else
+            {
+                Debug.Log("Combo opportunity timer expired - no combo achieved");
+            }
+            onComboTimerLeft?.Invoke(0f); // Send 0 to indicate timer expired
+            
+            _comboTimerCoroutine = null;
+        }
+
+        private void OnResetScore()
+        {
+            _currentScore = 0;
+            _comboLevel = 0;
+            _isFirstMatch = true;
+            
+            // Stop combo timer
+            if (_comboTimerCoroutine != null)
+            {
+                StopCoroutine(_comboTimerCoroutine);
+                _comboTimerCoroutine = null;
+            }
+            
+            onScoreUpdated?.Invoke(_currentScore);
+            onComboTimerLeft?.Invoke(0f); // Hide timer UI
+        }
+
+        [ContextMenu("Increase Score")]
+        private void IncreaseScore()
+        {
+            _currentScore += 1;
+            onScoreUpdated?.Invoke(_currentScore);
         }
     }
 }

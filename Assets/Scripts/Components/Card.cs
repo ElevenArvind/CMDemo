@@ -41,7 +41,11 @@ namespace CMDemo.Components
         private bool _isTweening = false;
         public void OnSelectedCard()
         {
-            if (_isTweening || FrontSideObject.activeInHierarchy) return;
+            // Only prevent if currently tweening - allow re-flipping if card is back to closed state
+            if (_isTweening) return;
+
+            // Only flip if card is currently showing back side (closed)
+            if (!BackSideObject.activeInHierarchy) return;
 
             _isTweening = true;
             
@@ -143,6 +147,19 @@ namespace CMDemo.Components
                 _isTweening = false;
                 // Card is now invisible (scaled to zero)
             });
+        }
+
+        public void ResetCard()
+        {
+            // Reset all visual states
+            _isTweening = false;
+            FrontSideObject.SetActive(false);
+            BackSideObject.SetActive(true);
+            
+            // Reset transform
+            RectTransform rectTransform = GetComponent<RectTransform>();
+            rectTransform.localScale = Vector3.one;
+            rectTransform.rotation = Quaternion.identity;
         }
 
         public void OnMatchNotFound()
